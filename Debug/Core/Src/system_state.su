@@ -1,0 +1,2 @@
+../Core/Src/system_state.c:13:6:system_state_set	16	static
+../Core/Src/system_state.c:19:16:system_state_get	4	static
