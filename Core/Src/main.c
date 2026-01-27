@@ -21,6 +21,8 @@
 #include <string.h>
 #include <stdio.h>
 #include "system_state.h"
+#include "soil_sensor.h"
+
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -45,6 +47,17 @@
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart1;
 
+/*global variable*/
+
+uint32_t last_measure_time = 0;
+const uint32_t MEASURE_INTERVAL_MS = 5000;
+const uint16_t MOISTURE_DRY_THRESHOLD = 400;
+
+uint32_t watering_start_time= 0;
+const uint32_t WATERING_DURATION_MS = 10000;  //10 SEC
+
+
+
 /* USER CODE BEGIN PV */
 void uart_log(const char *msg)
 {
@@ -58,6 +71,8 @@ void uart_log(const char *msg)
 
 }
 
+#define PUMP_ON() HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET)
+#define PUMP_OFF() HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET)
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -117,7 +132,81 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
+	  uint32_t current_time = HAL_GetTick();
+	  if ((current_time - last_measure_time) >= MEASURE_INTERVAL_MS)
+	  {
+		  last_measure_time = current_time;
+		  system_state_t state = system_state_get();
+		  switch (state)
+		  {
+		  case STATE_INIT:
+			  uart_log("[STATE] INIT -> IDLE \n " );
+			  system_state_set(STATE_IDLE);
+			  break;
+
+		  case STATE_IDLE:
+			  uart_log("[STATE] IDLE -> MEASURING\n");
+			  system_state_set(STATE_MEASURING);
+			  break;
+
+		  case STATE_MEASURING:
+		  {
+			  uint16_t moisture = soil_sensor_read();
+			  char buf[50];
+			  sprintf(buf, "[MEASURE] Moisture = %u \n", moisture);
+			  uart_log(buf);
+
+			  if (moisture < MOISTURE_DRY_THRESHOLD)
+			  {
+				  uart_log("[DECISION] Soil dry -> WATERING \n");
+				  system_state_set(STATE_WATERING);
+
+			  }
+			  else
+			  {
+				  uart_log("[DECISION] Soil OK -> IDLE\n");
+				  system_state_set(STATE_IDLE);
+
+			  }
+			  break;
+
+
+		  }
+		  case STATE_WATERING:
+		  {
+			  uart_log("[PUMP] ON\n");
+			  PUMP_ON();
+
+			  watering_start_time = HAL_GetTick();
+			  system_state_set(STATE_COOLDOWN);
+			  break;
+
+		  }
+		  case STATE_COOLDOWN:
+		  {
+			  if((HAL_GetTick() - watering_start_time) >= WATERING_DURATION_MS)
+
+			  {
+				  PUMP_OFF();
+				  uart_log("[PUMP] OFF\n");
+				  uart_log("[STATE] COOLDOWN -> IDLE\n");
+				  system_state_set(STATE_IDLE);
+
+			  }
+			  break;
+
+
+		  }
+
+		  case STATE_ERROR:
+		  uart_log("[STATE] ERROR\n");
+		  break;
+
+		  default:
+			  break;
+
+		  }
+	  }
 
     /* USER CODE BEGIN 3 */
   }
