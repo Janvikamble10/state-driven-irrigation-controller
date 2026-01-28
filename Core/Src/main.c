@@ -22,6 +22,9 @@
 #include <stdio.h>
 #include "system_state.h"
 #include "soil_sensor.h"
+#include "logger.h"
+#include "pump_control.h"
+#include "config.h"
 
 
 /* Private includes ----------------------------------------------------------*/
@@ -45,34 +48,19 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-UART_HandleTypeDef huart1;
+ UART_HandleTypeDef huart1;
 
 /*global variable*/
 
 uint32_t last_measure_time = 0;
-const uint32_t MEASURE_INTERVAL_MS = 5000;
-const uint16_t MOISTURE_DRY_THRESHOLD = 400;
 
 uint32_t watering_start_time= 0;
-const uint32_t WATERING_DURATION_MS = 10000;  //10 SEC
 
+uint16_t moisture_before_watering = 0;
 
 
 /* USER CODE BEGIN PV */
-void uart_log(const char *msg)
-{
-	HAL_UART_Transmit(
-			&huart1,
-			(uint8_t *)msg,
-			strlen(msg),
-			HAL_MAX_DELAY
 
-		);
-
-}
-
-#define PUMP_ON() HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET)
-#define PUMP_OFF() HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET)
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -120,9 +108,9 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART1_UART_Init();
-  uart_log("[BOOT] State_Driven Irrigation Controller started\r\n");
+  logger_log("[BOOT] State_Driven Irrigation Controller started\r\n");
   system_state_set(STATE_INIT);
-  uart_log("[STATE] INIT\n");
+  logger_log("[STATE] INIT\n");
 
   /* USER CODE BEGIN 2 */
 
@@ -140,12 +128,12 @@ int main(void)
 		  switch (state)
 		  {
 		  case STATE_INIT:
-			  uart_log("[STATE] INIT -> IDLE \n " );
+			  logger_log("[STATE] INIT -> IDLE \n " );
 			  system_state_set(STATE_IDLE);
 			  break;
 
 		  case STATE_IDLE:
-			  uart_log("[STATE] IDLE -> MEASURING\n");
+			  logger_log("[STATE] IDLE -> MEASURING\n");
 			  system_state_set(STATE_MEASURING);
 			  break;
 
@@ -154,17 +142,18 @@ int main(void)
 			  uint16_t moisture = soil_sensor_read();
 			  char buf[50];
 			  sprintf(buf, "[MEASURE] Moisture = %u \n", moisture);
-			  uart_log(buf);
+			  logger_log(buf);
 
 			  if (moisture < MOISTURE_DRY_THRESHOLD)
 			  {
-				  uart_log("[DECISION] Soil dry -> WATERING \n");
+				  moisture_before_watering = moisture;
+				  logger_log("[DECISION] Soil dry -> WATERING \n");
 				  system_state_set(STATE_WATERING);
 
 			  }
 			  else
 			  {
-				  uart_log("[DECISION] Soil OK -> IDLE\n");
+				  logger_log("[DECISION] Soil OK -> IDLE\n");
 				  system_state_set(STATE_IDLE);
 
 			  }
@@ -174,8 +163,8 @@ int main(void)
 		  }
 		  case STATE_WATERING:
 		  {
-			  uart_log("[PUMP] ON\n");
-			  PUMP_ON();
+			  logger_log("[PUMP] ON\n");
+			  pump_on();
 
 			  watering_start_time = HAL_GetTick();
 			  system_state_set(STATE_COOLDOWN);
@@ -187,9 +176,17 @@ int main(void)
 			  if((HAL_GetTick() - watering_start_time) >= WATERING_DURATION_MS)
 
 			  {
-				  PUMP_OFF();
-				  uart_log("[PUMP] OFF\n");
-				  uart_log("[STATE] COOLDOWN -> IDLE\n");
+				  pump_off();
+				  logger_log("[PUMP] OFF\n");
+
+				  uint16_t moisture_after = soil_sensor_read();
+
+				  if ((moisture_after - moisture_before_watering) < MOISTURE_MIN_IMPROVEMENT)
+				  {
+					  logger_log("[ERROR] Moisture did not improve after watering\n");
+							  system_state_set(STATE_ERROR);
+				  }
+				  logger_log("[STATE] COOLDOWN -> IDLE\n");
 				  system_state_set(STATE_IDLE);
 
 			  }
@@ -199,8 +196,12 @@ int main(void)
 		  }
 
 		  case STATE_ERROR:
-		  uart_log("[STATE] ERROR\n");
-		  break;
+		  {
+			  pump_off();
+			  logger_log("[STATE] ERROR - system halted\n");
+			  break;
+		  }
+
 
 		  default:
 			  break;
