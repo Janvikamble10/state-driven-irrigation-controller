@@ -105,6 +105,15 @@ This approach allows deterministic testing of firmware behavior.
 
 ---
 
+### Sensor Simulation
+
+To validate system behavior without physical hardware, soil moisture is simulated in firmware.
+Moisture increases after watering events and gradually decays during idle periods, mimicking real soil behavior.
+This allows closed-loop testing of control logic using UART logs.
+
+
+---
+
 ## Evolution Note
 
 This project is a **firmware-focused reimplementation** of an earlier irrigation prototype originally explored at a conceptual level.
