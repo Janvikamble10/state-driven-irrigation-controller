@@ -178,6 +178,7 @@ int main(void)
 			  {
 				  pump_off();
 				  logger_log("[PUMP] OFF\n");
+				  soil_sensor_on_watering();
 
 				  uint16_t moisture_after = soil_sensor_read();
 
@@ -327,6 +328,11 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
+	 if (system_state_get () == STATE_IDLE)
+	 {
+		 soil_sensor_decay();
+	 }
+
   }
   /* USER CODE END Error_Handler_Debug */
 }
